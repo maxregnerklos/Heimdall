@@ -1,783 +1,459 @@
-/* Copyright (c) 2010-2017 Benjamin Dobell, Glass Echidna
- 
- Permission is hereby granted, free of charge, to any person obtaining a copy
- of this software and associated documentation files (the "Software"), to deal
- in the Software without restriction, including without limitation the rights
- to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
- copies of the Software, and to permit persons to whom the Software is
- furnished to do so, subject to the following conditions:
- 
- The above copyright notice and this permission notice shall be included in
- all copies or substantial portions of the Software.
- 
- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
- IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
- LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
- THE SOFTWARE.*/
-
-// Qt
-#include "QRegExp"
-
-// Heimdall Frontend
-#include "Alerts.h"
-#include "FirmwareInfo.h"
-#include "Packaging.h"
-
-using namespace HeimdallFrontend;
-
-DeviceInfo::DeviceInfo()
-{
-}
-
-DeviceInfo::DeviceInfo(const QString& manufacturer, const QString& product, const QString& name)
-{
-	this->manufacturer = manufacturer;
-	this->product = product;
-	this->name = name;
-}
-
-bool DeviceInfo::ParseXml(QXmlStreamReader& xml)
-{
-	bool foundManufacturer = false;
-	bool foundProduct = false;
-	bool foundName = false;
-
-	while (!xml.atEnd())
-	{
-		QXmlStreamReader::TokenType nextToken = xml.readNext();
-
-		if (nextToken == QXmlStreamReader::StartElement)
-		{
-			if (xml.name() == "manufacturer")
-			{
-				if (foundManufacturer)
-				{
-					Alerts::DisplayError("Found multiple <manufacturer> elements in <device>.");
-					return (false);
-				}
-
-				foundManufacturer = true;
-
-				manufacturer = xml.readElementText();
-			}
-			else if (xml.name() == "product")
-			{
-				if (foundProduct)
-				{
-					Alerts::DisplayError("Found multiple <product> elements in <device>.");
-					return (false);
-				}
-
-				foundProduct = true;
-
-				product = xml.readElementText();
-			}
-			else if (xml.name() == "name")
-			{
-				if (foundName)
-				{
-					Alerts::DisplayError("Found multiple <name> elements in <device>.");
-					return (false);
-				}
-
-				foundName = true;
-
-				name = xml.readElementText();
-			}
-			else
-			{
-				Alerts::DisplayError(QString("<%1> is not a valid child of <device>.").arg(xml.name().toString()));
-				return (false);
-			}
-		}
-		else if (nextToken == QXmlStreamReader::EndElement)
-		{
-			if (xml.name() == "device")
-			{
-				if (foundManufacturer && foundProduct && foundName)
-				{
-					return (true);
-				}
-				else
-				{
-					Alerts::DisplayError("Required elements are missing from <device>.");
-					return (false);
-				}
-			}
-		}
-		else
-		{
-			if (!(nextToken == QXmlStreamReader::Characters && xml.isWhitespace()))
-			{
-				Alerts::DisplayError("Unexpected token found in <device>.");
-				return (false);
-			}
-		}
-	}
-
-	return (false);
-}
-
-void DeviceInfo::WriteXml(QXmlStreamWriter& xml) const
-{
-	xml.writeStartElement("device");
-
-	xml.writeStartElement("manufacturer");
-	xml.writeCharacters(manufacturer);
-	xml.writeEndElement();
-
-	xml.writeStartElement("product");
-	xml.writeCharacters(product);
-	xml.writeEndElement();
-
-	xml.writeStartElement("name");
-	xml.writeCharacters(name);
-	xml.writeEndElement();
-
-	xml.writeEndElement();
-}
-
-
-
-PlatformInfo::PlatformInfo()
-{
-}
-
-void PlatformInfo::Clear(void)
-{
-	name.clear();
-	version.clear();
-}
-
-bool PlatformInfo::IsCleared(void) const
-{
-	return (name.isEmpty() && version.isEmpty());
-}
-
-bool PlatformInfo::ParseXml(QXmlStreamReader& xml)
-{
-	Clear();
-
-	bool foundName = false;
-	bool foundVersion = false;
-
-	while (!xml.atEnd())
-	{
-		QXmlStreamReader::TokenType nextToken = xml.readNext();
-
-		if (nextToken == QXmlStreamReader::StartElement)
-		{
-			if (xml.name() == "name")
-			{
-				if (foundName)
-				{
-					Alerts::DisplayError("Found multiple <name> elements in <platform>.");
-					return (false);
-				}
-
-				foundName = true;
-
-				name = xml.readElementText();
-			}
-			else if (xml.name() == "version")
-			{
-				if (foundVersion)
-				{
-					Alerts::DisplayError("Found multiple <version> elements in <platform>.");
-					return (false);
-				}
-
-				foundVersion = true;
-
-				version = xml.readElementText();
-			}
-			else
-			{
-				Alerts::DisplayError(QString("<%1> is not a valid child of <platform>.").arg(xml.name().toString()));
-				return (false);
-			}
-		}
-		else if (nextToken == QXmlStreamReader::EndElement)
-		{
-			if (xml.name() == "platform")
-			{
-				if (foundName && foundVersion)
-				{
-					return (true);
-				}
-				else
-				{
-					Alerts::DisplayError("Required elements are missing from <platform>.");
-					return (false);
-				}
-			}
-		}
-		else
-		{
-			if (!(nextToken == QXmlStreamReader::Characters && xml.isWhitespace()))
-			{
-				Alerts::DisplayError("Unexpected token found in <platform>.");
-				return (false);
-			}
-		}
-	}
-
-	return (false);
-}
-
-void PlatformInfo::WriteXml(QXmlStreamWriter& xml) const
-{
-	xml.writeStartElement("platform");
-
-	xml.writeStartElement("name");
-	xml.writeCharacters(name);
-	xml.writeEndElement();
-
-	xml.writeStartElement("version");
-	xml.writeCharacters(version);
-	xml.writeEndElement();
-
-	xml.writeEndElement();
-}
-
-
-
-FileInfo::FileInfo()
-{
-}
-
-FileInfo::FileInfo(unsigned int partitionId, const QString& filename)
-{
-	this->partitionId = partitionId;
-	this->filename = filename;
-}
-
-bool FileInfo::ParseXml(QXmlStreamReader& xml)
-{
-	bool foundId = false;
-	bool foundFilename = false;
-
-	while (!xml.atEnd())
-	{
-		QXmlStreamReader::TokenType nextToken = xml.readNext();
-
-		if (nextToken == QXmlStreamReader::StartElement)
-		{
-			if (xml.name() == "id")
-			{
-				if (foundId)
-				{
-					Alerts::DisplayError("Found multiple <id> elements in <file>.");
-					return (false);
-				}
-
-				foundId = true;
-
-				partitionId = xml.readElementText().toInt();
-			}
-			else if (xml.name() == "filename")
-			{
-				if (foundFilename)
-				{
-					Alerts::DisplayError("Found multiple <filename> elements in <file>.");
-					return (false);
-				}
-
-				foundFilename = true;
-
-				filename = xml.readElementText();
-			}
-			else
-			{
-				Alerts::DisplayError(QString("<%1> is not a valid child of <file>.").arg(xml.name().toString()));
-				return (false);
-			}
-		}
-		else if (nextToken == QXmlStreamReader::EndElement)
-		{
-			if (xml.name() == "file")
-			{
-				if (foundId && foundFilename)
-				{
-					return (true);
-				}
-				else
-				{
-					Alerts::DisplayError("Required elements are missing from <file>.");
-					return (false);
-				}
-			}
-		}
-		else
-		{
-			if (!(nextToken == QXmlStreamReader::Characters && xml.isWhitespace()))
-			{
-				Alerts::DisplayError("Unexpected token found in <file>.");
-				return (false);
-			}
-		}
-	}
-
-	return (false);
-}
-
-void FileInfo::WriteXml(QXmlStreamWriter& xml, const QString& filename) const
-{
-	xml.writeStartElement("file");
-
-	xml.writeStartElement("id");
-	xml.writeCharacters(QString::number(partitionId));
-	xml.writeEndElement();
-
-	xml.writeStartElement("filename");
-	xml.writeCharacters(filename);
-	xml.writeEndElement();
-
-	xml.writeEndElement();
-}
-
-
-
-FirmwareInfo::FirmwareInfo()
-{
-	repartition = false;
-	noReboot = false;
-}
-
-void FirmwareInfo::Clear(void)
-{
-	name = "";
-	version = "";
-	platformInfo.Clear();
-
-	developers.clear();
-	url.clear();
-	donateUrl.clear();
-
-	deviceInfos.clear();
-
-	pitFilename.clear();
-	repartition = false;
-
-	noReboot = false;
-
-	fileInfos.clear();
-}
-
-bool FirmwareInfo::IsCleared(void) const
-{
-	return (name.isEmpty() && version.isEmpty() && platformInfo.IsCleared() && developers.isEmpty() && url.isEmpty() && url.isEmpty() && donateUrl.isEmpty()
-		&& deviceInfos.isEmpty() && pitFilename.isEmpty() && !repartition && !noReboot && fileInfos.isEmpty());
-}
-
-bool FirmwareInfo::ParseXml(QXmlStreamReader& xml)
-{
-	Clear();
-
-	bool foundName = false;
-	bool foundVersion = false;
-	bool foundPlatform = false;
-	bool foundDevelopers = false;
-	bool foundUrl = false;
-	bool foundDonateUrl = false;
-	bool foundDevices = false;
-	bool foundPit = false;
-	bool foundRepartition = false;
-	bool foundNoReboot = false;
-	bool foundFiles = false;
-
-	if (!xml.readNextStartElement())
-	{
-		Alerts::DisplayError("Failed to find <firmware> element.");
-		return (false);
-	}
-
-	if (xml.name() != "firmware")
-	{
-		Alerts::DisplayError(QString("Expected <firmware> element but found <%1>.").arg(xml.name().toString()));
-		return (false);
-	}
-
-	QString formatVersionString;
-	formatVersionString += xml.attributes().value("version");
-
-	if (formatVersionString.isEmpty())
-	{
-		Alerts::DisplayError("<firmware> is missing the version attribute.");
-		return (false);
-	}
-
-	bool parsedVersion = false;
-	int formatVersion = formatVersionString.toInt(&parsedVersion);
-
-	if (!parsedVersion)
-	{
-		Alerts::DisplayError("<firmware> contains a malformed version.");
-		return (false);
-	}
-
-	if (formatVersion > kVersion)
-	{
-		Alerts::DisplayError("Package is for a newer version of Heimdall Frontend.\nPlease download the latest version of Heimdall Frontend.");
-		return (false);
-	}
-
-	while (!xml.atEnd())
-	{
-		QXmlStreamReader::TokenType nextToken = xml.readNext();
-
-		if (nextToken == QXmlStreamReader::StartElement)
-		{
-			if (xml.name() == "name")
-			{
-				if (foundName)
-				{
-					Alerts::DisplayError("Found multiple <name> elements in <firmware>.");
-					return (false);
-				}
-
-				foundName = true;
-				name = xml.readElementText();
-			}
-			else if (xml.name() == "version")
-			{
-				if (foundVersion)
-				{
-					Alerts::DisplayError("Found multiple <version> elements in <firmware>.");
-					return (false);
-				}
-
-				foundVersion = true;
-				version = xml.readElementText();
-			}
-			else if (xml.name() == "platform")
-			{
-				if (foundPlatform)
-				{
-					Alerts::DisplayError("Found multiple <platform> elements in <firmware>.");
-					return (false);
-				}
-
-				foundPlatform = true;
-
-				if (!platformInfo.ParseXml(xml))
-					return (false);
-			}
-			else if (xml.name() == "developers")
-			{
-				if (foundDevelopers)
-				{
-					Alerts::DisplayError("Found multiple <developers> elements in <firmware>.");
-					return (false);
-				}
-
-				foundDevelopers = true;
-
-				while (!xml.atEnd())
-				{
-					nextToken = xml.readNext();
-
-					if (nextToken == QXmlStreamReader::StartElement)
-					{
-						if (xml.name() == "name")
-						{
-							developers.append(xml.readElementText());
-						}
-						else
-						{
-							Alerts::DisplayError(QString("<%1> is not a valid child of <developers>.").arg(xml.name().toString()));
-							return (false);
-						}
-					}
-					else if (nextToken == QXmlStreamReader::EndElement)
-					{
-						if (xml.name() == "developers")
-							break;
-					}
-					else
-					{
-						if (!(nextToken == QXmlStreamReader::Characters && xml.isWhitespace()))
-						{
-							Alerts::DisplayError("Unexpected token found in <developers>.");
-							return (false);
-						}
-					}
-				}
-			}
-			else if (xml.name() == "url")
-			{
-				if (foundUrl)
-				{
-					Alerts::DisplayError("Found multiple <url> elements in <firmware>.");
-					return (false);
-				}
-
-				foundUrl = true;
-
-				url = xml.readElementText();
-			}
-			else if (xml.name() == "donateurl")
-			{
-				if (foundDonateUrl)
-				{
-					Alerts::DisplayError("Found multiple <donateurl> elements in <firmware>.");
-					return (false);
-				}
-
-				foundDonateUrl = true;
-
-				donateUrl = xml.readElementText();
-			}
-			else if (xml.name() == "devices")
-			{
-				if (foundDevices)
-				{
-					Alerts::DisplayError("Found multiple <devices> elements in <firmware>.");
-					return (false);
-				}
-
-				foundDevices = true;
-
-				while (!xml.atEnd())
-				{
-					nextToken = xml.readNext();
-
-					if (nextToken == QXmlStreamReader::StartElement)
-					{
-						if (xml.name() == "device")
-						{
-							DeviceInfo deviceInfo;
-
-							if (!deviceInfo.ParseXml(xml))
-								return (false);
-
-							deviceInfos.append(deviceInfo);
-						}
-						else
-						{
-							Alerts::DisplayError(QString("<%1> is not a valid child of <devices>.").arg(xml.name().toString()));
-							return (false);
-						}
-					}
-					else if (nextToken == QXmlStreamReader::EndElement)
-					{
-						if (xml.name() == "devices")
-							break;
-					}
-					else
-					{
-						if (!(nextToken == QXmlStreamReader::Characters && xml.isWhitespace()))
-						{
-							Alerts::DisplayError("Unexpected token found in <devices>.");
-							return (false);
-						}
-					}
-				}
-			}
-			else if (xml.name() == "pit")
-			{
-				if (foundPit)
-				{
-					Alerts::DisplayError("Found multiple <pit> elements in <firmware>.");
-					return (false);
-				}
-
-				foundPit = true;
-
-				pitFilename = xml.readElementText();
-			}
-			else if (xml.name() == "repartition")
-			{
-				if (foundRepartition)
-				{
-					Alerts::DisplayError("Found multiple <repartition> elements in <firmware>.");
-					return (false);
-				}
-
-				foundRepartition = true;
-
-				repartition = (xml.readElementText().toInt() != 0);
-			}
-			else if (xml.name() == "noreboot")
-			{
-				if (foundNoReboot)
-				{
-					Alerts::DisplayError("Found multiple <noreboot> elements in <firmware>.");
-					return (false);
-				}
-
-				foundNoReboot = true;
-
-				noReboot = (xml.readElementText().toInt() != 0);
-			}
-			else if (xml.name() == "files")
-			{
-				if (foundFiles)
-				{
-					Alerts::DisplayError("Found multiple <files> elements in <firmware>.");
-					return (false);
-				}
-
-				foundFiles = true;
-
-				while (!xml.atEnd())
-				{
-					nextToken = xml.readNext();
-
-					if (nextToken == QXmlStreamReader::StartElement)
-					{
-						if (xml.name() == "file")
-						{
-							FileInfo fileInfo;
-
-							if (!fileInfo.ParseXml(xml))
-								return (false);
-
-							fileInfos.append(fileInfo);
-						}
-						else
-						{
-							Alerts::DisplayError(QString("<%1> is not a valid child of <files>.").arg(xml.name().toString()));
-							return (false);
-						}
-					}
-					else if (nextToken == QXmlStreamReader::EndElement)
-					{
-						if (xml.name() == "files")
-							break;
-					}
-					else
-					{
-						if (!(nextToken == QXmlStreamReader::Characters && xml.isWhitespace()))
-						{
-							Alerts::DisplayError("Unexpected token found in <devices>.");
-							return (false);
-						}
-					}
-				}
-			}
-			else
-			{
-				Alerts::DisplayError(QString("<%1> is not a valid child of <firmware>.").arg(xml.name().toString()));
-				return (false);
-			}
-		}
-		else if (nextToken == QXmlStreamReader::EndElement)
-		{
-			if (xml.name() == "firmware")
-			{
-				if (!(foundName && foundVersion && foundPlatform && foundDevelopers && foundDevices && foundPit && foundRepartition && foundNoReboot && foundFiles))
-				{
-					Alerts::DisplayError("Required elements are missing from <firmware>.");
-					return (false);
-				}
-				else
-				{
-					break;
-				}
-			}
-		}
-		else
-		{
-			if (!(nextToken == QXmlStreamReader::Characters && xml.isWhitespace()))
-			{
-				Alerts::DisplayError("Unexpected token found in <firmware>.");
-				return (false);
-			}
-		}
-	}
-
-	// Read whitespaces at the end of the file (if there are any)
-	xml.readNext();
-
-	if (!xml.atEnd())
-	{
-		Alerts::DisplayError("Found data after </firmware>.");
-		return (false);
-	}
-	
-	return (true);
-}
-
-void FirmwareInfo::WriteXml(QXmlStreamWriter& xml) const
-{
-	xml.writeStartDocument();
-	xml.writeStartElement("firmware");
-	xml.writeAttribute("version", QString::number(FirmwareInfo::kVersion));
-
-	xml.writeStartElement("name");
-	xml.writeCharacters(name);
-	xml.writeEndElement();
-
-	xml.writeStartElement("version");
-	xml.writeCharacters(version);
-	xml.writeEndElement();
-
-	platformInfo.WriteXml(xml);
-
-	xml.writeStartElement("developers");
-
-	for (int i = 0; i < developers.length(); i++)
-	{
-		xml.writeStartElement("name");
-		xml.writeCharacters(developers[i]);
-		xml.writeEndElement();
-	}
-
-	xml.writeEndElement();
-
-	if (!url.isEmpty())
-	{
-		xml.writeStartElement("url");
-		xml.writeCharacters(url);
-		xml.writeEndElement();
-	}
-
-	if (!donateUrl.isEmpty())
-	{
-		xml.writeStartElement("donateurl");
-		xml.writeCharacters(donateUrl);
-		xml.writeEndElement();
-	}
-
-	xml.writeStartElement("devices");
-
-	for (int i = 0; i < deviceInfos.length(); i++)
-		deviceInfos[i].WriteXml(xml);
-
-	xml.writeEndElement();
-
-	xml.writeStartElement("pit");
-
-	int lastSlash = pitFilename.lastIndexOf('/');
-
-	if (lastSlash < 0)
-		lastSlash = pitFilename.lastIndexOf('\\');
-
-	xml.writeCharacters(pitFilename.mid(lastSlash + 1));
-
-	xml.writeEndElement();
-
-	xml.writeStartElement("repartition");
-	xml.writeCharacters((repartition) ? "1" : "0");
-	xml.writeEndElement();
-
-	xml.writeStartElement("noreboot");
-	xml.writeCharacters((noReboot) ? "1" : "0");
-	xml.writeEndElement();
-
-	xml.writeStartElement("files");
-
-	for (int i = 0; i < fileInfos.length(); i++)
-	{
-		fileInfos[i].WriteXml(xml, Packaging::ClashlessFilename(fileInfos, i));
-	}
-
-	xml.writeEndElement();
-
-	xml.writeEndElement();
-	xml.writeEndDocument();
-}
+from PyQt5.QtCore import QFile, QIODevice, QXmlStreamReader, QXmlStreamWriter
+from Alerts import Alerts
+
+class DeviceInfo:
+    def __init__(self):
+        self.manufacturer = ""
+        self.product = ""
+        self.name = ""
+
+    def parse_xml(self, xml):
+        found_manufacturer = False
+        found_product = False
+        found_name = False
+
+        while not xml.atEnd():
+            next_token = xml.readNext()
+
+            if next_token == QXmlStreamReader.StartElement:
+                if xml.name() == "manufacturer":
+                    if found_manufacturer:
+                        Alerts.display_error("Found multiple <manufacturer> elements in <device>.")
+                        return False
+
+                    found_manufacturer = True
+                    self.manufacturer = xml.readElementText()
+                elif xml.name() == "product":
+                    if found_product:
+                        Alerts.display_error("Found multiple <product> elements in <device>.")
+                        return False
+
+                    found_product = True
+                    self.product = xml.readElementText()
+                elif xml.name() == "name":
+                    if found_name:
+                        Alerts.display_error("Found multiple <name> elements in <device>.")
+                        return False
+
+                    found_name = True
+                    self.name = xml.readElementText()
+                else:
+                    Alerts.display_error(f"<{xml.name()}> is not a valid child of <device>.")
+                    return False
+            elif next_token == QXmlStreamReader.EndElement:
+                if xml.name() == "device":
+                    if found_manufacturer and found_product and found_name:
+                        return True
+                    else:
+                        Alerts.display_error("Required elements are missing from <device>.")
+                        return False
+            else:
+                if not (next_token == QXmlStreamReader.Characters and xml.isWhitespace()):
+                    Alerts.display_error("Unexpected token found in <device>.")
+                    return False
+
+        return False
+
+    def write_xml(self, xml):
+        xml.writeStartElement("device")
+
+        xml.writeStartElement("manufacturer")
+        xml.writeCharacters(self.manufacturer)
+        xml.writeEndElement()
+
+        xml.writeStartElement("product")
+        xml.writeCharacters(self.product)
+        xml.writeEndElement()
+
+        xml.writeStartElement("name")
+        xml.writeCharacters(self.name)
+        xml.writeEndElement()
+
+        xml.writeEndElement()
+
+
+class PlatformInfo:
+    def __init__(self):
+        self.name = ""
+        self.version = ""
+
+    def parse_xml(self, xml):
+        found_name = False
+        found_version = False
+
+        while not xml.atEnd():
+            next_token = xml.readNext()
+
+            if next_token == QXmlStreamReader.StartElement:
+                if xml.name() == "name":
+                    if found_name:
+                        Alerts.display_error("Found multiple <name> elements in <platform>.")
+                        return False
+
+                    found_name = True
+                    self.name = xml.readElementText()
+                elif xml.name() == "version":
+                    if found_version:
+                        Alerts.display_error("Found multiple <version> elements in <platform>.")
+                        return False
+
+                    found_version = True
+                    self.version = xml.readElementText()
+                else:
+                    Alerts.display_error(f"<{xml.name()}> is not a valid child of <platform>.")
+                    return False
+            elif next_token == QXmlStreamReader.EndElement:
+                if xml.name() == "platform":
+                    if found_name and found_version:
+                        return True
+                    else:
+                        Alerts.display_error("Required elements are missing from <platform>.")
+                        return False
+            else:
+                if not (next_token == QXmlStreamReader.Characters and xml.isWhitespace()):
+                    Alerts.display_error("Unexpected token found in <platform>.")
+                    return False
+
+        return False
+
+    def write_xml(self, xml):
+        xml.writeStartElement("platform")
+
+        xml.writeStartElement("name")
+        xml.writeCharacters(self.name)
+        xml.writeEndElement()
+
+        xml.writeStartElement("version")
+        xml.writeCharacters(self.version)
+        xml.writeEndElement()
+
+        xml.writeEndElement()
+
+
+class FileInfo:
+    def __init__(self):
+        self.partition_id = 0
+        self.filename = ""
+
+    def parse_xml(self, xml):
+        found_id = False
+        found_filename = False
+
+        while not xml.atEnd():
+            next_token = xml.readNext()
+
+            if next_token == QXmlStreamReader.StartElement:
+                if xml.name() == "id":
+                    if found_id:
+                        Alerts.display_error("Found multiple <id> elements in <file>.")
+                        return False
+
+                    found_id = True
+                    self.partition_id = int(xml.readElementText())
+                elif xml.name() == "filename":
+                    if found_filename:
+                        Alerts.display_error("Found multiple <filename> elements in <file>.")
+                        return False
+
+                    found_filename = True
+                    self.filename = xml.readElementText()
+                else:
+                    Alerts.display_error(f"<{xml.name()}> is not a valid child of <file>.")
+                    return False
+            elif next_token == QXmlStreamReader.EndElement:
+                if xml.name() == "file":
+                    if found_id and found_filename:
+                        return True
+                    else:
+                        Alerts.display_error("Required elements are missing from <file>.")
+                        return False
+            else:
+                if not (next_token == QXmlStreamReader.Characters and xml.isWhitespace()):
+                    Alerts.display_error("Unexpected token found in <file>.")
+                    return False
+
+        return False
+
+    def write_xml(self, xml, filename):
+        xml.writeStartElement("file")
+
+        xml.writeStartElement("id")
+        xml.writeCharacters(str(self.partition_id))
+        xml.writeEndElement()
+
+        xml.writeStartElement("filename")
+        xml.writeCharacters(filename)
+        xml.writeEndElement()
+
+        xml.writeEndElement()
+
+
+class FirmwareInfo:
+    kVersion = 1
+
+    def __init__(self):
+        self.name = ""
+        self.version = ""
+        self.platform_info = PlatformInfo()
+        self.developers = []
+        self.url = ""
+        self.donate_url = ""
+        self.device_infos = []
+        self.pit_filename = ""
+        self.repartition = False
+        self.no_reboot = False
+        self.file_infos = []
+
+    def parse_xml(self, xml):
+        self.clear()
+
+        found_name = False
+        found_version = False
+        found_platform = False
+        found_developers = False
+        found_url = False
+        found_donate_url = False
+        found_devices = False
+        found_pit = False
+        found_repartition = False
+        found_no_reboot = False
+        found_files = False
+
+        if not xml.readNextStartElement():
+            Alerts.display_error("Failed to find <firmware> element.")
+            return False
+
+        if xml.name() != "firmware":
+            Alerts.display_error(f"Expected <firmware> element but found <{xml.name()}>.")
+            return False
+
+        format_version_string = xml.attributes().value("version")
+
+        if format_version_string.isEmpty():
+            Alerts.display_error("<firmware> is missing the version attribute.")
+            return False
+
+        parsed_version, format_version = False, format_version_string.toInt(parsed_version)
+        if not parsed_version:
+            Alerts.display_error("<firmware> contains a malformed version.")
+            return False
+
+        if format_version > FirmwareInfo.kVersion:
+            Alerts.display_error("Package is for a newer version of Heimdall Frontend.\nPlease download the latest version of Heimdall Frontend.")
+            return False
+
+        while not xml.atEnd():
+            next_token = xml.readNext()
+
+            if next_token == QXmlStreamReader.StartElement:
+                if xml.name() == "name":
+                    if found_name:
+                        Alerts.display_error("Found multiple <name> elements in <firmware>.")
+                        return False
+
+                    found_name = True
+                    self.name = xml.readElementText()
+                elif xml.name() == "version":
+                    if found_version:
+                        Alerts.display_error("Found multiple <version> elements in <firmware>.")
+                        return False
+
+                    found_version = True
+                    self.version = xml.readElementText()
+                elif xml.name() == "platform":
+                    if found_platform:
+                        Alerts.display_error("Found multiple <platform> elements in <firmware>.")
+                        return False
+
+                    found_platform = True
+                    if not self.platform_info.parse_xml(xml):
+                        return False
+                elif xml.name() == "developers":
+                    if found_developers:
+                        Alerts.display_error("Found multiple <developers> elements in <firmware>.")
+                        return False
+
+                    found_developers = True
+                    while not xml.atEnd():
+                        next_token = xml.readNext()
+
+                        if next_token == QXmlStreamReader.StartElement:
+                            if xml.name() == "name":
+                                self.developers.append(xml.readElementText())
+                            else:
+                                Alerts.display_error(f"<{xml.name()}> is not a valid child of <developers>.")
+                                return False
+                        elif next_token == QXmlStreamReader.EndElement:
+                            if xml.name() == "developers":
+                                break
+                        else:
+                            if not (next_token == QXmlStreamReader.Characters and xml.isWhitespace()):
+                                Alerts.display_error("Unexpected token found in <developers>.")
+                                return False
+                elif xml.name() == "url":
+                    if found_url:
+                        Alerts.display_error("Found multiple <url> elements in <firmware>.")
+                        return False
+
+                    found_url = True
+                    self.url = xml.readElementText()
+                elif xml.name() == "donateurl":
+                    if found_donate_url:
+                        Alerts.display_error("Found multiple <donateurl> elements in <firmware>.")
+                        return False
+
+                    found_donate_url = True
+                    self.donate_url = xml.readElementText()
+                elif xml.name() == "devices":
+                    if found_devices:
+                        Alerts.display_error("Found multiple <devices> elements in <firmware>.")
+                        return False
+
+                    found_devices = True
+                    while not xml.atEnd():
+                        next_token = xml.readNext()
+
+                        if next_token == QXmlStreamReader.StartElement:
+                            if xml.name() == "device":
+                                device_info = DeviceInfo()
+                                if not device_info.parse_xml(xml):
+                                    return False
+                                self.device_infos.append(device_info)
+                            else:
+                                Alerts.display_error(f"<{xml.name()}> is not a valid child of <devices>.")
+                                return False
+                        elif next_token == QXmlStreamReader.EndElement:
+                            if xml.name() == "devices":
+                                break
+                        else:
+                            if not (next_token == QXmlStreamReader.Characters and xml.isWhitespace()):
+                                Alerts.display_error("Unexpected token found in <devices>.")
+                                return False
+                elif xml.name() == "pit":
+                    if found_pit:
+                        Alerts.display_error("Found multiple <pit> elements in <firmware>.")
+                        return False
+
+                    found_pit = True
+                    self.pit_filename = xml.readElementText()
+                elif xml.name() == "repartition":
+                    if found_repartition:
+                        Alerts.display_error("Found multiple <repartition> elements in <firmware>.")
+                        return False
+
+                    found_repartition = True
+                    self.repartition = (xml.readElementText().toInt() != 0)
+                elif xml.name() == "noreboot":
+                    if found_no_reboot:
+                        Alerts.display_error("Found multiple <noreboot> elements in <firmware>.")
+                        return False
+
+                    found_no_reboot = True
+                    self.no_reboot = (xml.readElementText().toInt() != 0)
+                elif xml.name() == "files":
+                    if found_files:
+                        Alerts.display_error("Found multiple <files> elements in <firmware>.")
+                        return False
+
+                    found_files = True
+                    while not xml.atEnd():
+                        next_token = xml.readNext()
+
+                        if next_token == QXmlStreamReader.StartElement:
+                            if xml.name() == "file":
+                                file_info = FileInfo()
+                                if not file_info.parse_xml(xml):
+                                    return False
+                                self.file_infos.append(file_info)
+                            else:
+                                Alerts.display_error(f"<{xml.name()}> is not a valid child of <files>.")
+                                return False
+                        elif next_token == QXmlStreamReader.EndElement:
+                            if xml.name() == "files":
+                                break
+                        else:
+                            if not (next_token == QXmlStreamReader.Characters and xml.isWhitespace()):
+                                Alerts.display_error("Unexpected token found in <devices>.")
+                                return False
+                else:
+                    Alerts.display_error(f"<{xml.name()}> is not a valid child of <firmware>.")
+                    return False
+            elif next_token == QXmlStreamReader.EndElement:
+                if xml.name() == "firmware":
+                    if not (found_name and found_version and found_platform and found_developers and found_devices and found_pit and found_repartition and found_no_reboot and found_files):
+                        Alerts.display_error("Required elements are missing from <firmware>.")
+                        return False
+                    else:
+                        break
+            else:
+                if not (next_token == QXmlStreamReader.Characters and xml.isWhitespace()):
+                    Alerts.display_error("Unexpected token found in <firmware>.")
+                    return False
+
+        xml.readNext()
+        if not xml.atEnd():
+            Alerts.display_error("Found data after </firmware>.")
+            return False
+
+        return True
+
+    def write_xml(self, xml):
+        xml.writeStartDocument()
+        xml.writeStartElement("firmware")
+        xml.writeAttribute("version", str(FirmwareInfo.kVersion))
+
+        xml.writeStartElement("name")
+        xml.writeCharacters(self.name)
+        xml.writeEndElement()
+
+        xml.writeStartElement("version")
+        xml.writeCharacters(self.version)
+        xml.writeEndElement()
+
+        self.platform_info.write_xml(xml)
+
+        xml.writeStartElement("developers")
+        for dev in self.developers:
+            xml.writeStartElement("name")
+            xml.writeCharacters(dev)
+            xml.writeEndElement()
+        xml.writeEndElement()
+
+        if self.url:
+            xml.writeStartElement("url")
+            xml.writeCharacters(self.url)
+            xml.writeEndElement()
+
+        if self.donate_url:
+            xml.writeStartElement("donateurl")
+            xml.writeCharacters(self.donate_url)
+            xml.writeEndElement()
+
+        xml.writeStartElement("devices")
+        for dev_info in self.device_infos:
+            dev_info.write_xml(xml)
+        xml.writeEndElement()
+
+        xml.writeStartElement("pit")
+        last_slash = self.pit_filename.rfind('/')
+        if last_slash < 0:
+            last_slash = self.pit_filename.rfind('\\')
+
+        xml.writeCharacters(self.pit_filename[last_slash + 1:])
+        xml.writeEndElement()
+
+        xml.writeStartElement("repartition")
+        xml.writeCharacters("1" if self.repartition else "0")
+        xml.writeEndElement()
+
+        xml.writeStartElement("noreboot")
+        xml.writeCharacters("1" if self.no_reboot else "0")
+        xml.writeEndElement()
+
+        xml.writeStartElement("files")
+        for file_info in self.file_infos:
+            file_info.write_xml(xml, Packaging.clashless_filename(self.file_infos))
+        xml.writeEndElement()
+
+        xml.writeEndElement()
+        xml.writeEndDocument()
